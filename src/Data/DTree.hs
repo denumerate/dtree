@@ -9,6 +9,8 @@ module Data.DTree
   , buildTree
   , buildTree'
   , runTree
+  , entropy
+  , jointEntroy
   ) where
 
 import Data.List(nub,sortBy,foldl',maximumBy,partition,minimumBy)
