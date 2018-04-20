@@ -6,8 +6,9 @@ module Data.DTree
   , TreeParams(..)
   , noParams
   , maxDepth
+  , split
+  , buildDTree
   , buildTree
-  , buildTree'
   , runTree
   , entropy
   , jointEntroy
@@ -27,7 +28,12 @@ data VarType = Continuous
 -- for the inputs.
 type InputInfo a b = [(VarType,a -> b)]
 
+-- |A split simply takes an input and returns either true (indicating that the
+-- value belongs to the first branch) or false (which indicates the second).
 type Split a = (a -> Bool)
+
+-- |A function that build a split.
+type SplitFunction a b c = (VarType,a -> c) -> [(c,b)] -> Split a
 
 data DTree a b = Leaf a
                | Branch (Split b) (DTree a b) (DTree a b)
@@ -119,36 +125,30 @@ splitDiscrete ps =
                              (filter (\(a,_) -> a==cat) ps))) cats in
     highScore tally
 
--- |Finds a split
-split :: (Ord a,Ord b) => VarType -> [(a,b)] -> a
-split Continuous = splitContinuous
-split Discrete = splitDiscrete
-
--- |Creates a split function
-buildSplit :: Ord b => (VarType,a -> b) -> b -> Split a
-buildSplit (Discrete,f) x val = f val == x
-buildSplit (Continuous,f) x val = f val <= x
+-- |Finds and creates a split using a scoring function
+split :: (Ord c,Ord b) => SplitFunction a b c
+split (Continuous,f) ls val = f val <= splitContinuous ls
+split (Discrete,f) ls val = f val == splitDiscrete ls
 
 -- |Builds a decision tree.
 -- Needs the Input data, the output data, the input info, and an optional max
 -- height.
-buildDTree :: (Ord b,Ord c) => [a] -> [b] -> InputInfo a c -> TreeParams
-  -> DTree b a
-buildDTree ins outs info params@TreeParams{..} =
+buildDTree :: (Ord b,Ord c) => SplitFunction a b c -> [a] -> [b] ->
+  InputInfo a c -> TreeParams -> DTree b a
+buildDTree sfunc ins outs info params@TreeParams{..} =
   let ent = entropy outs
       (splt,newent) =
         minimumBy (\a b -> compare (snd a) (snd b)) $
         map ((\splt' ->
                 (splt',jointEntroy $ (\(a,b) -> [map snd a,map snd b]) $
                   partition (splt' . fst) $ zip ins outs)) .
-              (\i@(typ,ef) -> buildSplit i
-                (split typ (zip (map ef ins) outs)))) info
+              (\i@(_,ef) -> (split i (zip (map ef ins) outs)))) info
       leaf = Leaf $ fst $ M.findMax $ count outs
       tree = if newent < ent
         then let (p1,p2) = partition (splt . fst) $ zip ins outs in
-        Branch splt (buildDTree (map fst p1) (map snd p1) info
+        Branch splt (buildDTree sfunc (map fst p1) (map snd p1) info
                      (reduceDepth params))
-        (buildDTree (map fst p2) (map snd p2) info (reduceDepth params))
+        (buildDTree sfunc (map fst p2) (map snd p2) info (reduceDepth params))
         else leaf in
     case (maxTreeDepth,minTreeSize) of
       (Just 0,_) -> leaf
@@ -176,16 +176,10 @@ pruneTree ins outs (EBranch sf a b err) =
       (pruneTree (map fst p2) (map snd p2) b)
 
 -- |Builds and prunes a tree, start to finish.
-buildTree :: (Ord b,Ord c) => [a] -> [b] -> InputInfo a c -> TreeParams
-  -> DTree b a
-buildTree ins outs info params =
-  pruneTree ins outs $ calcErrs ins outs $ buildDTree ins outs info params
-
--- |Builds a tree without pruning it
--- |Builds and prunes a tree, start to finish.
-buildTree' :: (Ord b,Ord c) => [a] -> [b] -> InputInfo a c -> TreeParams
-  -> DTree b a
-buildTree' = buildDTree
+buildTree :: (Ord b,Ord c) => SplitFunction a b c -> [a] -> [b] ->
+  InputInfo a c -> TreeParams -> DTree b a
+buildTree sfunc ins outs info params =
+  pruneTree ins outs $ calcErrs ins outs $ buildDTree sfunc ins outs info params
 
 -- |Takes an input and uses a tree to get an output.
 runTree :: DTree a b -> b -> a

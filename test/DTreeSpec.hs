@@ -17,4 +17,5 @@ entropyTest =
   , ("Entropy Test: single",[1],0)
   , ("Entropy Test: single repeat",[2,2,2],0)
   , ("Entropy Test: coin",[1,2],1)
+  , ("Entropy Test: bits",[1,2,3,4],2)
   ]
