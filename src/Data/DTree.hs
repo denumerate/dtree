@@ -8,6 +8,7 @@ module Data.DTree
   , maxDepth
   , split
   , buildDTree
+  , buildDTreeM
   , buildTree
   , runTree
   , entropy
@@ -32,8 +33,11 @@ type InputInfo a b = [(VarType,a -> b)]
 -- value belongs to the first branch) or false (which indicates the second).
 type Split a = (a -> Bool)
 
--- |A function that build a split.
-type SplitFunction a b c = (VarType,a -> c) -> [(c,b)] -> Split a
+-- |A function that build a split, and returns it along with the new entropy value.
+type SplitFunction a b c = InputInfo a c -> [a] -> [b] -> (Split a,Double)
+
+-- |A monadic split function.
+type SplitFunctionM m a b c = InputInfo a c -> [a] -> [b] -> m (Split a,Double)
 
 data DTree a b = Leaf a
                | Branch (Split b) (DTree a b) (DTree a b)
@@ -126,23 +130,26 @@ splitDiscrete ps =
     highScore tally
 
 -- |Finds and creates a split using a scoring function
-split :: (Ord c,Ord b) => SplitFunction a b c
-split (Continuous,f) ls val = f val <= splitContinuous ls
-split (Discrete,f) ls val = f val == splitDiscrete ls
+splitClass :: (Ord b,Ord c) => (VarType,a -> c) -> [(c,b)] -> Split a
+splitClass (Continuous,f) ls val = f val <= splitContinuous ls
+splitClass (Discrete,f) ls val = f val == splitDiscrete ls
+
+-- |Finds a split using entropy to score the results.
+split :: (Ord b,Ord c) => SplitFunction a b c
+split info ins outs =
+  minimumBy (\a b -> compare (snd a) (snd b)) $
+  map ((\splt' -> (splt',jointEntroy $ (\(a,b) -> [map snd a,map snd b]) $
+                    partition (splt' . fst) $ zip ins outs)) .
+        (\i@(_,ef) -> (splitClass i (zip (map ef ins) outs)))) info
 
 -- |Builds a decision tree.
--- Needs the Input data, the output data, the input info, and an optional max
--- height.
+-- Needs the split function, input data, the output data, the input info, and
+-- and tree parameters that provide training limits.
 buildDTree :: (Ord b,Ord c) => SplitFunction a b c -> [a] -> [b] ->
   InputInfo a c -> TreeParams -> DTree b a
 buildDTree sfunc ins outs info params@TreeParams{..} =
   let ent = entropy outs
-      (splt,newent) =
-        minimumBy (\a b -> compare (snd a) (snd b)) $
-        map ((\splt' ->
-                (splt',jointEntroy $ (\(a,b) -> [map snd a,map snd b]) $
-                  partition (splt' . fst) $ zip ins outs)) .
-              (\i@(_,ef) -> (split i (zip (map ef ins) outs)))) info
+      (splt,newent) = sfunc info ins outs
       leaf = Leaf $ fst $ M.findMax $ count outs
       tree = if newent < ent
         then let (p1,p2) = partition (splt . fst) $ zip ins outs in
@@ -154,6 +161,27 @@ buildDTree sfunc ins outs info params@TreeParams{..} =
       (Just 0,_) -> leaf
       (_,Just min') -> if length ins < min' then leaf else tree
       _ -> tree
+
+-- |Builds a decision tree using a monadic split function.
+buildDTreeM :: (Ord b,Ord c,Monad m) => SplitFunctionM m a b c -> [a] -> [b] ->
+  InputInfo a c -> TreeParams -> m (DTree b a)
+buildDTreeM sfunc ins outs info params@TreeParams{..} =
+  sfunc info ins outs >>=
+  \(splt,newent) ->
+    let ent = entropy outs
+        leaf = return $ Leaf $ fst $ M.findMax $ count outs
+        tree = if newent < ent
+          then let (p1,p2) = partition (splt . fst) $ zip ins outs in
+          buildDTreeM sfunc (map fst p1) (map snd p1) info
+          (reduceDepth params) >>=
+          \b1 -> buildDTreeM sfunc (map fst p2) (map snd p2) info
+          (reduceDepth params) >>=
+          \b2 -> return (Branch splt b1 b2)
+          else leaf in
+      case (maxTreeDepth,minTreeSize) of
+        (Just 0,_) -> leaf
+        (_,Just min') -> if length ins < min' then leaf else tree
+        _ -> tree
 
 -- |Uses data to calculate errors at each level.
 -- Needs the inputs, the outputs, and the tree.
