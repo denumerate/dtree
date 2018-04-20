@@ -20,6 +20,8 @@ import Data.Map(Map)
 import qualified Data.Map as M
 import Control.Arrow(second)
 
+import Data.DTree.Internal(entropy,jointEntroy)
+
 -- |Determines the two types of variables.
 data VarType = Continuous
              | Discrete
@@ -39,17 +41,23 @@ type SplitFunction a b c = InputInfo a c -> [a] -> [b] -> (Split a,Double)
 -- |A monadic split function.
 type SplitFunctionM m a b c = InputInfo a c -> [a] -> [b] -> m (Split a,Double)
 
+-- |Decision trees are encoded as binary trees that hold the split information
+-- at each branch.
 data DTree a b = Leaf a
                | Branch (Split b) (DTree a b) (DTree a b)
 
 data ETree a b = ELeaf a Int
                | EBranch (Split b) (ETree a b) (ETree a b) Int
 
+-- |Parameters that the build functions use to limit growth.
 data TreeParams = TreeParams
-  { maxTreeDepth :: Maybe Int
-  , minTreeSize :: Maybe Int
+  { maxTreeDepth :: Maybe Int -- ^ The maximum depth a tree can reach before a
+                    -- leaf is forced.
+  , minTreeSize :: Maybe Int -- ^ The minimum number of samples that the build
+                   -- algorithm can use to build a split.
   }
 
+-- |Empty tree parameters.
 noParams :: TreeParams
 noParams = TreeParams
   { maxTreeDepth = Nothing
@@ -62,25 +70,15 @@ reduceDepth TreeParams{..} = TreeParams
   , minTreeSize = minTreeSize
   }
 
+-- |Calculates the depth of a tree.
 maxDepth :: DTree a b -> Int
 maxDepth (Leaf _) = 0
 maxDepth (Branch _ a b) = maximum [1 + maxDepth a,1 + maxDepth b]
 
+-- |Extracts error value from error tree.
 getErr :: ETree a b -> Int
 getErr (ELeaf _ x) = x
 getErr (EBranch _ _ _ x) = x
-
--- |Internal entropy formula, takes the value count and the total.
-subEntropy :: Floating a => a -> a -> a
-subEntropy cnt ttl = let p = cnt / ttl in
-  -p * logBase 2 p
-
--- |Gets the entropy of a Discrete variable.
-entropy :: (Eq a,Floating b) => [a] -> b
-entropy os = let total = fromIntegral $ length os
-                 cnt x = fromIntegral . length . filter (==x)
-                 us = nub os in
-  sum (map ((`subEntropy` total) . (`cnt` os)) us)
 
 -- |Counts values in a list
 count :: Ord a => [a] -> Map a Int
@@ -88,13 +86,6 @@ count = foldl' (flip (M.alter count')) M.empty
   where
     count' Nothing = Just 1
     count' (Just x) = Just $ x + 1
-
--- |Gets the entropy of Discrete variables after they have been partitioned.
-jointEntroy :: (Eq a,Floating b) => [[a]] -> b
-jointEntroy ps = let total = fromIntegral $ sum $ map length ps
-                     cnt x = fromIntegral . length . filter (==x)
-                     us = nub $ concat ps in
-  sum $ map (\p -> sum (map ((`subEntropy` total) . (`cnt` p)) us)) ps
 
 -- |Scores and extracts the hightest point from a list of points with count maps.
 highScore :: [(a,Map b Int)] -> a
@@ -142,11 +133,14 @@ split info ins outs =
                     partition (splt' . fst) $ zip ins outs)) .
         (\i@(_,ef) -> (splitClass i (zip (map ef ins) outs)))) info
 
--- |Builds a decision tree.
--- Needs the split function, input data, the output data, the input info, and
--- and tree parameters that provide training limits.
-buildDTree :: (Ord b,Ord c) => SplitFunction a b c -> [a] -> [b] ->
-  InputInfo a c -> TreeParams -> DTree b a
+-- |Builds a decision tree using the supplied split function.
+buildDTree :: (Ord b,Ord c) => SplitFunction a b c -- ^ The split function.
+  -> [a] -- ^ The input values.
+  -> [b] -- ^ The output values.
+  -> InputInfo a c -- ^ Information about the inputs that helps create the split
+           -- function.
+  -> TreeParams -- ^ Parameters to limit tree growth.
+  -> DTree b a -- ^ The returned tree.
 buildDTree sfunc ins outs info params@TreeParams{..} =
   let ent = entropy outs
       (splt,newent) = sfunc info ins outs
