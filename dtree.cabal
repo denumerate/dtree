@@ -30,6 +30,7 @@ library
       src
   build-depends: base >=4.7 && <5
                , containers >= 0.5
+               , data-utils >= 0
   exposed-modules: Data.DTree
   other-modules: Data.DTree.Internal
   default-language: Haskell2010

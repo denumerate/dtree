@@ -19,6 +19,8 @@ resolver: lts-11.5
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
+
+
 #
 # packages:
 # - some-directory
@@ -36,10 +38,11 @@ resolver: lts-11.5
 # non-dependency (i.e. a user package), and its test suites and benchmarks
 # will not be run. This is useful for tweaking upstream packages.
 packages:
-- .
+  - '.'
+  - ../data-utils
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
-# extra-deps: []
+extra-deps: []
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

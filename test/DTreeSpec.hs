@@ -5,7 +5,7 @@ module DTreeSpec
 import Test.HUnit(Test(..))
 import Utils(runtests)
 
-import Data.DTree(entropy)
+import Data.DTree.Internal(entropy)
 
 allTests :: Test
 allTests = TestList $
