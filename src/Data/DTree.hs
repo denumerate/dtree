@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses #-}
 module Data.DTree
   ( DTree
   , VarType(..)
@@ -17,6 +17,7 @@ import Data.List(nub,sortBy,foldl',maximumBy,partition,minimumBy)
 import Data.Map(Map)
 import qualified Data.Map as M
 import Control.Arrow(second)
+import Data.Model(Model(..),DataSet)
 
 import Data.DTree.Internal(entropy,jointEntroy)
 
@@ -43,6 +44,8 @@ type SplitFunctionM m a b c = InputInfo a c -> [a] -> [b] -> m (Split a,Double)
 -- at each branch.
 data DTree a b = Leaf a
                | Branch (Split b) (DTree a b) (DTree a b)
+
+instance (DataSet d) => Model DTree d a b where
 
 data ETree a b = ELeaf a Int
                | EBranch (Split b) (ETree a b) (ETree a b) Int
