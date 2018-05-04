@@ -1,10 +1,9 @@
 {-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
 module Data.DTree
   ( DTree
   , VarType(..)
   , InputInfo
-  , TreeParams(..)
-  , noParams
   , maxDepth
   , split
   , buildDTree
@@ -43,29 +42,23 @@ type SplitFunctionM m a b c = InputInfo a c -> [a] -> [b] -> m (Split a,Double)
 -- |Decision trees are encoded as binary trees that hold the split information
 -- at each branch.
 data DTree a b = Leaf a
-               | Branch (Split b) (DTree a b) (DTree a b)
+                 | Branch (Split b) (DTree a b) (DTree a b)
 
-instance (DataSet d) => Model DTree d a b where
+instance (DataSet d) => Model DTree d i o where
+  data ModelParams i o =
+    TreeParams
+    { maxTreeDepth :: Maybe Int -- ^ The maximum depth a tree can reach before a
+                   -- leaf is forced.
+    , minTreeSize :: Maybe Int -- ^ The minimum number of samples that the build
+                  -- algorithm can use to build a split.
+    , inputInfo :: [VarType]
+    , splitFuncion :: [VarType] -> [i] -> [o] -> (Split i,Double)
+    }
 
 data ETree a b = ELeaf a Int
                | EBranch (Split b) (ETree a b) (ETree a b) Int
 
--- |Parameters that the build functions use to limit growth.
-data TreeParams = TreeParams
-  { maxTreeDepth :: Maybe Int -- ^ The maximum depth a tree can reach before a
-                    -- leaf is forced.
-  , minTreeSize :: Maybe Int -- ^ The minimum number of samples that the build
-                   -- algorithm can use to build a split.
-  }
-
--- |Empty tree parameters.
-noParams :: TreeParams
-noParams = TreeParams
-  { maxTreeDepth = Nothing
-  , minTreeSize = Nothing
-  }
-
-reduceDepth :: TreeParams -> TreeParams
+reduceDepth :: ModelParams i o -> ModelParams i o
 reduceDepth TreeParams{..} = TreeParams
   { maxTreeDepth = fmap (\x -> x - 1) maxTreeDepth
   , minTreeSize = minTreeSize
@@ -140,7 +133,7 @@ buildDTree :: (Ord b,Ord c) => SplitFunction a b c -- ^ The split function.
   -> [b] -- ^ The output values.
   -> InputInfo a c -- ^ Information about the inputs that helps create the split
            -- function.
-  -> TreeParams -- ^ Parameters to limit tree growth.
+  -> ModelParams a b -- ^ Parameters to limit tree growth.
   -> DTree b a -- ^ The returned tree.
 buildDTree sfunc ins outs info params@TreeParams{..} =
   let ent = entropy outs
@@ -159,7 +152,7 @@ buildDTree sfunc ins outs info params@TreeParams{..} =
 
 -- |Builds a decision tree using a monadic split function.
 buildDTreeM :: (Ord b,Ord c,Monad m) => SplitFunctionM m a b c -> [a] -> [b] ->
-  InputInfo a c -> TreeParams -> m (DTree b a)
+  InputInfo a c -> ModelParams a b -> m (DTree b a)
 buildDTreeM sfunc ins outs info params@TreeParams{..} =
   sfunc info ins outs >>=
   \(splt,newent) ->
@@ -200,7 +193,7 @@ pruneTree ins outs (EBranch sf a b err) =
 
 -- |Builds and prunes a tree, start to finish.
 buildTree :: (Ord b,Ord c) => SplitFunction a b c -> [a] -> [b] ->
-  InputInfo a c -> TreeParams -> DTree b a
+  InputInfo a c -> ModelParams a b -> DTree b a
 buildTree sfunc ins outs info params =
   pruneTree ins outs $ calcErrs ins outs $ buildDTree sfunc ins outs info params
 
