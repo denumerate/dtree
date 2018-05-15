@@ -5,8 +5,11 @@ module Data.DTree
   , DTree(..)
   , DTreeParams(..)
   , VarType(..)
+  , SplitFunction
+  , SplitFunctionM
   , buildTree
   , split
+  , randomSplit
   , errorPruneTree
   ) where
 
@@ -16,10 +19,12 @@ import Data.Text(Text)
 import qualified Data.Map as M
 import Control.Arrow(second)
 import Numeric.LinearAlgebra.Data(Matrix,Vector,Indexable,toColumns,toRows,
-                                  fromRows,rows,asColumn,fromList)
+                                  fromRows,rows,asColumn,fromList,fromColumns)
 import Numeric.LinearAlgebra(Element)
 import qualified Numeric.LinearAlgebra.Data as LN
 import Control.Monad.Except(MonadError,throwError)
+import Control.Monad.Random.Class(MonadRandom)
+import System.Random.Shuffle(shuffleM)
 import Data.Model(Model)
 
 import Data.DTree.Internal(entropy,jointEntroy)
@@ -36,7 +41,7 @@ type Split a = Vector a -> Bool
 type SplitFunction a b = [VarType] -> Matrix a -> [b] -> (Split a,Double)
 
 -- |A monadic split function.
-type SplitFunctionM m a b = [VarType] -> a -> [b] -> m (Split a,Double)
+type SplitFunctionM m a b = [VarType] -> Matrix a -> [b] -> m (Split a,Double)
 
 type PruneFunction a b = Matrix a -> [b] -> DTree a b -> DTree a b
 
@@ -90,6 +95,12 @@ highScore = fst . maximumBy (\a b -> compare (snd a) (snd b)) .
     score :: Num b => Map a b -> b
     score = (\((_,mx),rst) -> mx - sum (map snd (M.toList rst))) .
             M.deleteFindMax
+
+randomSplit :: Element a => MonadRandom m => Int -> SplitFunction a b
+  -> SplitFunctionM m a b
+randomSplit n sf info ins outs =
+  (\cols -> sf (map fst cols) (fromColumns $ map snd cols) outs) . take n <$>
+  shuffleM (zip info $ toColumns ins)
 
 -- |Finds the best split for a continuous variable
 splitContinuous :: (Ord a,Ord b) => [(a,b)] -> a
