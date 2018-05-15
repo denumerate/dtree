@@ -29,9 +29,9 @@ import Data.Model(Model)
 
 import Data.DTree.Internal(entropy,jointEntroy)
 
--- |Determines the two types of variables.
-data VarType = Continuous
-             | Discrete
+-- |Determines the two types of variables, also contains the column number.
+data VarType = Continuous Int
+             | Discrete Int
 
 -- |A split simply takes an input and returns either true (indicating that the
 -- value belongs to the first branch) or false (which indicates the second).
@@ -96,6 +96,8 @@ highScore = fst . maximumBy (\a b -> compare (snd a) (snd b)) .
     score = (\((_,mx),rst) -> mx - sum (map snd (M.toList rst))) .
             M.deleteFindMax
 
+-- |Shuffles the input columns and then performs the supplied split function on
+-- the first n supplied columns.
 randomSplit :: Element a => MonadRandom m => Int -> SplitFunction a b
   -> SplitFunctionM m a b
 randomSplit n sf info ins outs =
@@ -127,10 +129,10 @@ splitDiscrete ps =
     highScore tally
 
 -- |Finds and creates a split using a scoring function
-splitClass :: (Indexable (Vector a) a,Ord a,Ord b) => VarType -> Int ->
+splitClass :: (Indexable (Vector a) a,Ord a,Ord b) => VarType ->
   [(a,b)] -> Split a
-splitClass Continuous i ls val = (val LN.! i) <= splitContinuous ls
-splitClass Discrete i ls val = (val LN.! i) == splitDiscrete ls
+splitClass (Continuous i) ls val = (val LN.! i) <= splitContinuous ls
+splitClass (Discrete i) ls val = (val LN.! i) == splitDiscrete ls
 
 -- |Finds a split using entropy to score the results.
 split :: (Element a,Indexable (Vector a) a,Ord a,Ord b) => SplitFunction a b
@@ -139,8 +141,8 @@ split info ins outs =
   map ((\splt' -> (splt',jointEntroy $ (\(a,b) -> [map snd a,map snd b]) $
                           partition (splt' . fst) $
                           zip (toRows ins) outs)) .
-        (\(info',col,i) -> splitClass info' i (zip (LN.toList col) outs))) $
-  zip3 info (toColumns ins) [0..]
+        (\(info',col) -> splitClass info' (zip (LN.toList col) outs))) $
+  zip info (toColumns ins)
 
 -- |Builds a decision tree using the supplied split function.
 buildDTree :: (MonadError Text me, Element a,Ord a,Ord b) =>
