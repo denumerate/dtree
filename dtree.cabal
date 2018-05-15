@@ -31,6 +31,10 @@ library
   build-depends: base >=4.7 && <5
                , containers >= 0.5
                , data-utils >= 0
+               , vector >= 0.12
+               , hmatrix >= 0.18
+               , mtl >= 2.2
+               , text >= 1.2
   exposed-modules: Data.DTree
   other-modules: Data.DTree.Internal
   default-language: Haskell2010
