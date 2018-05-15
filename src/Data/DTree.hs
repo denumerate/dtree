@@ -1,5 +1,5 @@
-{-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies, FlexibleContexts, OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Data.DTree
   ( TreeModel
   , DTree(..)
