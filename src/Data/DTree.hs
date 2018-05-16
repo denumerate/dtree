@@ -4,9 +4,11 @@ module Data.DTree
   ( TreeModel
   , DTree(..)
   , DTreeParams(..)
+  , DTreeParamsM(..)
   , VarType(..)
   , SplitFunction
   , SplitFunctionM
+  , PruneFunction
   , buildTree
   , buildTreeM
   , split
@@ -23,7 +25,7 @@ import Numeric.LinearAlgebra.Data(Matrix,Vector,Indexable,toColumns,toRows,
                                   fromRows,rows,asColumn,fromList,fromColumns)
 import Numeric.LinearAlgebra(Element)
 import qualified Numeric.LinearAlgebra.Data as LN
-import Control.Monad.Except(MonadError,ExceptT,throwError)
+import Control.Monad.Except(MonadError,ExceptT,throwError,runExceptT)
 import Control.Monad.Random.Class(MonadRandom)
 import System.Random.Shuffle(shuffleM)
 import Data.Model(Model)
@@ -247,9 +249,9 @@ buildTree params@TreeParams{..} ins outs =
 
 -- |Monadic build tree.
 buildTreeM :: (Element a,Element b,Ord a,Ord b,Monad m) =>
-  DTreeParamsM m a b -> Matrix a -> [b] -> ExceptT Text m (TreeModel a b)
+  DTreeParamsM m a b -> Matrix a -> [b] -> m (Either Text (TreeModel a b))
 buildTreeM params@TreeParamsM{..} ins outs =
-  treeToModel <$>
+  runExceptT $ treeToModel <$>
   (case pruneFunctionM of
     Just ef -> ef ins outs <$> buildDTreeM params ins outs
     _ -> buildDTreeM params ins outs)
