@@ -8,6 +8,7 @@ module Data.DTree
   , SplitFunction
   , SplitFunctionM
   , buildTree
+  , buildTreeM
   , split
   , randomSplit
   , errorPruneTree
@@ -22,7 +23,7 @@ import Numeric.LinearAlgebra.Data(Matrix,Vector,Indexable,toColumns,toRows,
                                   fromRows,rows,asColumn,fromList,fromColumns)
 import Numeric.LinearAlgebra(Element)
 import qualified Numeric.LinearAlgebra.Data as LN
-import Control.Monad.Except(MonadError,throwError)
+import Control.Monad.Except(MonadError,ExceptT,throwError)
 import Control.Monad.Random.Class(MonadRandom)
 import System.Random.Shuffle(shuffleM)
 import Data.Model(Model)
@@ -41,7 +42,7 @@ type Split a = Vector a -> Bool
 type SplitFunction a b = [VarType] -> Matrix a -> [b] -> (Split a,Double)
 
 -- |A monadic split function.
-type SplitFunctionM m a b = [VarType] -> Matrix a -> [b] -> m (Split a,Double)
+type SplitFunctionM m a b = [VarType] -> Matrix a -> [b] -> ExceptT Text m (Split a,Double)
 
 type PruneFunction a b = Matrix a -> [b] -> DTree a b -> DTree a b
 
@@ -63,12 +64,27 @@ data DTreeParams i o = TreeParams
                   -- prune a tree after its creation.
   }
 
+data DTreeParamsM m i o = TreeParamsM
+  { maxTreeDepthM :: Maybe Int -- ^ The maximum depth a tree can reach before a
+                  -- leaf is forced.
+  , minTreeSizeM :: Maybe Int -- ^ The minimum number of samples that the build
+                 -- algorithm can use to build a split.
+  , inputInfoM :: [VarType]
+  , splitFuncionM :: SplitFunctionM m i o
+  , pruneFunctionM :: Maybe (PruneFunction i o) -- ^ An optional function to
+                   -- prune a tree after its creation.
+  }
+
 data ETree a b = ELeaf b Int
                | EBranch (Split a) (ETree a b) (ETree a b) Int
 
 reduceDepth :: DTreeParams i o -> DTreeParams i o
 reduceDepth t@TreeParams{..} =
   t { maxTreeDepth = fmap (\x -> x - 1) maxTreeDepth }
+
+reduceDepthM :: DTreeParamsM m i o -> DTreeParamsM m i o
+reduceDepthM t@TreeParamsM{..} =
+  t { maxTreeDepthM = fmap (\x -> x - 1) maxTreeDepthM }
 
 -- |Calculates the depth of a tree.
 maxDepth :: DTree a b -> Int
@@ -151,7 +167,8 @@ buildDTree :: (MonadError Text me, Element a,Ord a,Ord b) =>
   -> [b] -- ^ The output values.
   -> me (DTree a b) -- ^ The returned tree.
 buildDTree params@TreeParams{..} ins outs
-  |length outs /= rows ins = throwError ""
+  |length outs /= rows ins =
+     throwError "Input and output lengths do not match"
   |otherwise =
      let ent = entropy outs
          (splt,newent) = splitFuncion inputInfo ins outs
@@ -170,25 +187,30 @@ buildDTree params@TreeParams{..} ins outs
          _ -> tree
 
 -- -- |Builds a decision tree using a monadic split function.
--- buildDTreeM :: (Ord b,Ord c,Monad m) => SplitFunctionM m a b c -> [a] -> [b] ->
---   InputInfo a c -> DTreeParams a b -> m (DTree b a)
--- buildDTreeM sfunc ins outs info params@TreeParams{..} =
---   sfunc info ins outs >>=
---   \(splt,newent) ->
---     let ent = entropy outs
---         leaf = return $ Leaf $ fst $ M.findMax $ count outs
---         tree = if newent < ent
---           then let (p1,p2) = partition (splt . fst) $ zip ins outs in
---           buildDTreeM sfunc (map fst p1) (map snd p1) info
---           (reduceDepth params) >>=
---           \b1 -> buildDTreeM sfunc (map fst p2) (map snd p2) info
---           (reduceDepth params) >>=
---           \b2 -> return (Branch splt b1 b2)
---           else leaf in
---       case (maxTreeDepth,minTreeSize) of
---         (Just 0,_) -> leaf
---         (_,Just min') -> if length ins < min' then leaf else tree
---         _ -> tree
+buildDTreeM :: (Element a,Ord a,Ord b,Monad m) =>
+  DTreeParamsM m a b -- ^ Parameters to limit tree growth.
+  -> Matrix a -- ^ The input values.
+  -> [b] -- ^ The output values.
+  -> ExceptT Text m (DTree a b) -- ^ The returned tree.
+buildDTreeM params@TreeParamsM{..} ins outs
+  |length outs /= rows ins =
+     throwError "Input and output lengths do not match"
+  |otherwise = splitFuncionM inputInfoM ins outs >>=
+  \(splt,newent) ->
+    let ent = entropy outs
+        leaf = Leaf $ fst $ M.findMax $ count outs
+        tree = if newent < ent
+          then let (p1,p2) = partition (splt . fst) $ zip (toRows ins) outs in
+          buildDTreeM (reduceDepthM params) (fromRows $ map fst p1)
+          (map snd p1) >>=
+          \b1 -> buildDTreeM (reduceDepthM params) (fromRows $ map fst p2)
+                 (map snd p2) >>=
+          \b2 -> return $ Branch splt b1 b2
+          else return leaf in
+      case (maxTreeDepthM,minTreeSizeM) of
+        (Just 0,_) -> return leaf
+        (_,Just min') -> if rows ins < min' then return leaf else tree
+        _ -> tree
 
 -- |Uses a simple error function to prune a tree.
 errorPruneTree :: (Element a, Ord b) => Matrix a -> [b] -> DTree a b -> DTree a b
@@ -222,6 +244,15 @@ buildTree params@TreeParams{..} ins outs =
   (case pruneFunction of
     Just ef -> ef ins outs <$> buildDTree params ins outs
     _ -> buildDTree params ins outs)
+
+-- |Monadic build tree.
+buildTreeM :: (Element a,Element b,Ord a,Ord b,Monad m) =>
+  DTreeParamsM m a b -> Matrix a -> [b] -> ExceptT Text m (TreeModel a b)
+buildTreeM params@TreeParamsM{..} ins outs =
+  treeToModel <$>
+  (case pruneFunctionM of
+    Just ef -> ef ins outs <$> buildDTreeM params ins outs
+    _ -> buildDTreeM params ins outs)
 
 -- |Converts a DTree to a model function.
 treeToModel :: (Element a,Element b) => DTree a b -> TreeModel a b
