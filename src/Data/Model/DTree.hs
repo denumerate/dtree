@@ -64,8 +64,10 @@ data DTreeParams i o = DTreeParams
                  -- leaf is forced.
   , minTreeSize :: Maybe Int -- ^ The minimum number of samples that the build
                 -- algorithm can use to build a split.
-  , inputInfo :: [VarType]
-  , splitFuncion :: SplitFunction i o
+  , inputInfo :: [VarType] -- ^ Information on each variable used by the
+                    -- split function.
+  , splitFuncion :: SplitFunction i o -- ^ A deterministic split function used
+                 -- to determine where to split nodes.
   , pruneFunction :: Maybe (PruneFunction i o) -- ^ An optional function to
                   -- prune a tree after its creation.
   }
@@ -76,8 +78,10 @@ data DTreeParamsM m i o = DTreeParamsM
                   -- leaf is forced.
   , minTreeSizeM :: Maybe Int -- ^ The minimum number of samples that the build
                  -- algorithm can use to build a split.
-  , inputInfoM :: [VarType]
-  , splitFuncionM :: SplitFunctionM m i o
+  , inputInfoM :: [VarType] -- ^ Information on each variable used by the
+                    -- split function.
+  , splitFuncionM :: SplitFunctionM m i o -- ^ A monadic function used
+                 -- to determine where to split nodes.
   , pruneFunctionM :: Maybe (PruneFunction i o) -- ^ An optional function to
                    -- prune a tree after its creation.
   }
