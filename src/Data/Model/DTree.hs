@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Data.DTree
+module Data.Model.DTree
   ( TreeModel
   , DTree(..)
   , DTreeParams(..)
@@ -30,7 +30,7 @@ import Control.Monad.Random.Class(MonadRandom)
 import System.Random.Shuffle(shuffleM)
 import Data.Model(Model)
 
-import Data.DTree.Internal(entropy,jointEntroy)
+import Data.Model.DTree.Internal(entropy,jointEntroy,count)
 
 -- |Determines the two types of variables, also contains the column number.
 data VarType = Continuous Int
@@ -46,16 +46,20 @@ type SplitFunction a b = [VarType] -> Matrix a -> [b] -> (Split a,Double)
 -- |A monadic split function.
 type SplitFunctionM m a b = [VarType] -> Matrix a -> [b] -> ExceptT Text m (Split a,Double)
 
+-- |A function that takes input and output data, a tree representation, and
+-- tries to reduce the size of the representation.
 type PruneFunction a b = Matrix a -> [b] -> DTree a b -> DTree a b
 
--- |Decision trees are encoded as binary trees that hold the split information
--- at each branch.
+-- |Internal representation of the tree model that is constructed and then
+-- turned into the tree model.
 data DTree a b = Leaf b
                | Branch (Split a) (DTree a b) (DTree a b)
 
+-- |A model representing a tree of Boolean choices.
 type TreeModel a b = Model a b
 
-data DTreeParams i o = TreeParams
+-- |Parameters to build a tree model for a pure process.
+data DTreeParams i o = DTreeParams
   { maxTreeDepth :: Maybe Int -- ^ The maximum depth a tree can reach before a
                  -- leaf is forced.
   , minTreeSize :: Maybe Int -- ^ The minimum number of samples that the build
@@ -66,7 +70,8 @@ data DTreeParams i o = TreeParams
                   -- prune a tree after its creation.
   }
 
-data DTreeParamsM m i o = TreeParamsM
+-- |Parameters to build a tree model for a monadic process.
+data DTreeParamsM m i o = DTreeParamsM
   { maxTreeDepthM :: Maybe Int -- ^ The maximum depth a tree can reach before a
                   -- leaf is forced.
   , minTreeSizeM :: Maybe Int -- ^ The minimum number of samples that the build
@@ -81,11 +86,11 @@ data ETree a b = ELeaf b Int
                | EBranch (Split a) (ETree a b) (ETree a b) Int
 
 reduceDepth :: DTreeParams i o -> DTreeParams i o
-reduceDepth t@TreeParams{..} =
+reduceDepth t@DTreeParams{..} =
   t { maxTreeDepth = fmap (\x -> x - 1) maxTreeDepth }
 
 reduceDepthM :: DTreeParamsM m i o -> DTreeParamsM m i o
-reduceDepthM t@TreeParamsM{..} =
+reduceDepthM t@DTreeParamsM{..} =
   t { maxTreeDepthM = fmap (\x -> x - 1) maxTreeDepthM }
 
 -- |Calculates the depth of a tree.
@@ -97,13 +102,6 @@ maxDepth (Branch _ a b) = maximum [1 + maxDepth a,1 + maxDepth b]
 getErr :: ETree a b -> Int
 getErr (ELeaf _ x) = x
 getErr (EBranch _ _ _ x) = x
-
--- |Counts values in a list
-count :: Ord a => [a] -> Map a Int
-count = foldl' (flip (M.alter count')) M.empty
-  where
-    count' Nothing = Just 1
-    count' (Just x) = Just $ x + 1
 
 -- |Scores and extracts the hightest point from a list of points with count maps.
 highScore :: [(a,Map b Int)] -> a
@@ -168,7 +166,7 @@ buildDTree :: (MonadError Text me, Element a,Ord a,Ord b) =>
   -> Matrix a -- ^ The input values.
   -> [b] -- ^ The output values.
   -> me (DTree a b) -- ^ The returned tree.
-buildDTree params@TreeParams{..} ins outs
+buildDTree params@DTreeParams{..} ins outs
   |length outs /= rows ins =
      throwError "Input and output lengths do not match"
   |otherwise =
@@ -194,7 +192,7 @@ buildDTreeM :: (Element a,Ord a,Ord b,Monad m) =>
   -> Matrix a -- ^ The input values.
   -> [b] -- ^ The output values.
   -> ExceptT Text m (DTree a b) -- ^ The returned tree.
-buildDTreeM params@TreeParamsM{..} ins outs
+buildDTreeM params@DTreeParamsM{..} ins outs
   |length outs /= rows ins =
      throwError "Input and output lengths do not match"
   |otherwise = splitFuncionM inputInfoM ins outs >>=
@@ -241,7 +239,7 @@ pruneTree' ins outs (EBranch sf a b err) =
 -- |Builds and prunes a tree, start to finish, and then converts it to a model.
 buildTree :: (MonadError Text em,Element a,Element b,Ord a,Ord b) =>
   DTreeParams a b -> Matrix a -> [b] -> em (TreeModel a b)
-buildTree params@TreeParams{..} ins outs =
+buildTree params@DTreeParams{..} ins outs =
   treeToModel <$>
   (case pruneFunction of
     Just ef -> ef ins outs <$> buildDTree params ins outs
@@ -250,7 +248,7 @@ buildTree params@TreeParams{..} ins outs =
 -- |Monadic build tree.
 buildTreeM :: (Element a,Element b,Ord a,Ord b,Monad m) =>
   DTreeParamsM m a b -> Matrix a -> [b] -> m (Either Text (TreeModel a b))
-buildTreeM params@TreeParamsM{..} ins outs =
+buildTreeM params@DTreeParamsM{..} ins outs =
   runExceptT $ treeToModel <$>
   (case pruneFunctionM of
     Just ef -> ef ins outs <$> buildDTreeM params ins outs

@@ -37,8 +37,9 @@ library
                , text >= 1.2
                , MonadRandom >= 0.1
                , random-shuffle >= 0
-  exposed-modules: Data.DTree
-  other-modules: Data.DTree.Internal
+  exposed-modules: Data.Model.DTree
+                   Data.Model.DTree.RandomForest
+  other-modules: Data.Model.DTree.Internal
   default-language: Haskell2010
 
 -- executable dtree-exe
