@@ -25,7 +25,7 @@ import Numeric.LinearAlgebra.Data(Matrix,Vector,Indexable,toColumns,toRows,
                                   fromRows,rows,asColumn,fromList,fromColumns)
 import Numeric.LinearAlgebra(Element)
 import qualified Numeric.LinearAlgebra.Data as LN
-import Control.Monad.Except(MonadError,ExceptT,throwError,runExceptT)
+import Control.Monad.Except(MonadError,ExceptT,throwError)
 import Control.Monad.Random.Class(MonadRandom)
 import System.Random.Shuffle(shuffleM)
 import Data.Model(Model)
@@ -247,9 +247,9 @@ buildTree params@DTreeParams{..} ins outs =
 
 -- |Monadic build tree.
 buildTreeM :: (Element a,Element b,Ord a,Ord b,Monad m) =>
-  DTreeParamsM m a b -> Matrix a -> [b] -> m (Either Text (TreeModel a b))
+  DTreeParamsM m a b -> Matrix a -> [b] -> ExceptT Text m (TreeModel a b)
 buildTreeM params@DTreeParamsM{..} ins outs =
-  runExceptT $ treeToModel <$>
+  treeToModel <$>
   (case pruneFunctionM of
     Just ef -> ef ins outs <$> buildDTreeM params ins outs
     _ -> buildDTreeM params ins outs)

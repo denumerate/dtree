@@ -3,11 +3,13 @@ module Data.Model.DTree.RandomForest
 
 import Data.List(maximumBy)
 import Numeric.LinearAlgebra(Element)
-import Numeric.LinearAlgebra.Data(Matrix,toRows,asColumn)
+import Numeric.LinearAlgebra.Data(Matrix,toRows,asColumn,cols,fromRows)
 import qualified Numeric.LinearAlgebra.Data as LN
 import qualified Data.Map as M
 import Data.Text(Text)
 import Control.Monad.Random.Class(MonadRandom)
+import System.Random.Shuffle(shuffleM)
+import Control.Monad.Except(ExceptT)
 import Data.Model(Model)
 import Data.Model.DTree(TreeModel,buildTreeM,DTreeParamsM(..),SplitFunction,
                         randomSplit,VarType)
@@ -27,7 +29,7 @@ averageVote =
 
 buildRandomTree :: (MonadRandom m, Element a, Element b, Ord a, Ord b) =>
   Int -> SplitFunction a b -> Matrix a -> [b] -> [VarType]
-  -> m (Either Text (TreeModel a b))
+  -> ExceptT Text m (TreeModel a b)
 buildRandomTree n sf ins outs vs = buildTreeM params ins outs
   where
     params = DTreeParamsM
@@ -37,3 +39,18 @@ buildRandomTree n sf ins outs vs = buildTreeM params ins outs
       , splitFuncionM = randomSplit n sf
       , pruneFunctionM = Nothing
       }
+
+buildForest :: (MonadRandom m,Element a,Element b,Ord a,Ord b) =>
+  SplitFunction a b -> Matrix a -> [b] -> [VarType] -> Int
+  -> ExceptT Text m [TreeModel a b]
+buildForest sf ins outs info n =
+  let sample = 1 + floor (logBase 2 (fromIntegral $ cols ins)) in
+    mapM (\_ -> buildRandomTree sample sf ins outs info) [1..n]
+
+buildForestWithSampling :: (MonadRandom m,Element a,Element b,Ord a,Ord b) =>
+  SplitFunction a b -> Matrix a -> [b] -> [VarType] -> Int -> Int
+  -> ExceptT Text m [TreeModel a b]
+buildForestWithSampling sf ins outs info n size =
+  let sample = 1 + floor (logBase 2 (fromIntegral $ cols ins)) in
+    mapM (\_ -> fmap (fromRows . take size) (shuffleM (toRows ins)) >>=
+                \ins' -> buildRandomTree sample sf ins' outs info) [1..n]
